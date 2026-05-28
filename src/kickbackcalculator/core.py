@@ -8,15 +8,12 @@ from io import StringIO
 
 KickbackGroupKey = tuple[str, str, str]
 
-# Input CSV is semicolon-separated.
-# The tests use a header row:
-#   customer;amount;currency;kickback_percent
-# and then data rows with exactly 4 columns.
-_CUSTOMER_COLUMN = 0
-_AMOUNT_COLUMN = 1
-_CURRENCY_COLUMN = 2
-_PERCENT_COLUMN = 3
-_MINIMUM_COLUMNS = 4
+# PHP-compatible semicolon CSV input contract.
+_CUSTOMER_COLUMN = 2
+_CURRENCY_COLUMN = 8
+_AMOUNT_COLUMN = 9
+_PERCENT_COLUMN = 10
+_MINIMUM_COLUMNS = 11
 
 _HUNDRED = Decimal("100")
 _TWO_DECIMAL_PLACES = Decimal("0.01")
@@ -30,7 +27,7 @@ def calculate_kickbacks(csv_text: str) -> str:
     """Convert semicolon-separated input CSV into grouped kickback output CSV.
 
     The first input row is always treated as a header and skipped. Blank rows,
-    rows with fewer than 4 columns, and rows with malformed amount or percent
+    rows with fewer than 11 columns, and rows with malformed amount or percent
     values are skipped silently.
 
     Returned CSV always uses ``;`` as delimiter, starts with the exact header
@@ -41,12 +38,11 @@ def calculate_kickbacks(csv_text: str) -> str:
     if not isinstance(csv_text, str):
         raise KickbackCalculatorError("csv_text must be a string")
 
-    grouped_amounts: dict[KickbackGroupKey, tuple[Decimal, Decimal]] = {}
+    grouped_amounts: dict[KickbackGroupKey, Decimal] = {}
 
     reader = csv.reader(StringIO(csv_text), delimiter=";")
 
     try:
-        # Always skip the first row as a header.
         next(reader, None)
 
         for row in reader:
@@ -63,12 +59,7 @@ def calculate_kickbacks(csv_text: str) -> str:
             customer = row[_CUSTOMER_COLUMN].strip()
             percent_key = _decimal_key(percent)
             group_key: KickbackGroupKey = (currency, customer, percent_key)
-
-            if group_key in grouped_amounts:
-                existing_amount, existing_percent = grouped_amounts[group_key]
-                grouped_amounts[group_key] = (existing_amount + amount, existing_percent)
-            else:
-                grouped_amounts[group_key] = (amount, percent)
+            grouped_amounts[group_key] = grouped_amounts.get(group_key, Decimal("0")) + amount
     except csv.Error as exc:
         raise KickbackCalculatorError("could not parse CSV input") from exc
 
@@ -80,9 +71,6 @@ def _is_blank_row(row: list[str]) -> bool:
 
 
 def _parse_decimal_value(value: str) -> Decimal:
-    # Accept common variants:
-    # - "1000.00" or "1000,00"
-    # - optional non-breaking spaces
     normalized = value.strip().replace("\u00a0", " ").replace(" ", "").replace(",", ".")
     if normalized == "":
         raise ValueError("empty decimal value")
@@ -95,34 +83,54 @@ def _parse_decimal_value(value: str) -> Decimal:
 
 
 def _decimal_key(value: Decimal) -> str:
+    """Normalize percent so values like 10, 10,0, and 10.0 group together."""
+
     if value == 0:
         return "0"
-
+    # PHP float->string behavior is close to removing trailing zeros.
     return format(value.normalize(), "f")
 
 
-def _render_output(grouped_amounts: dict[KickbackGroupKey, tuple[Decimal, Decimal]]) -> str:
+def _php_combined_key(currency: str, customer: str, percent_key: str) -> str:
+    # PHP contract: currency + '_' + customer + '_' + kickbackPercent
+    return f"{currency}_{customer}_{percent_key}"
+
+
+def _render_output(grouped_amounts: dict[KickbackGroupKey, Decimal]) -> str:
     output = StringIO()
     writer = csv.writer(output, delimiter=";", lineterminator="\n")
     writer.writerow(["customer", "kickback", "currency"])
 
+    # Totals must be appended after grouped rows.
     totals_by_currency: dict[str, Decimal] = {}
+    currency_order: list[str] = []
 
-    for currency, customer, percent_key in sorted(grouped_amounts):
-        amount_sum, percent = grouped_amounts[(currency, customer, percent_key)]
+    # Sort order must mimic PHP ksort($calculationsArray) on the combined key.
+    # The PHP contract sorts by: currency + '_' + customer + '_' + kickbackPercent.
+    sorted_items = sorted(
+        grouped_amounts.items(),
+        key=lambda item: _php_combined_key(item[0][0], item[0][1], item[0][2]),
+    )
+
+    for (currency, customer, percent_key), amount_sum in sorted_items:
+        percent = Decimal(percent_key)
         kickback = amount_sum * percent / _HUNDRED
-        totals_by_currency[currency] = totals_by_currency.get(currency, Decimal("0")) + kickback
+
+        if currency not in totals_by_currency:
+            totals_by_currency[currency] = Decimal("0")
+            currency_order.append(currency)
+
+        totals_by_currency[currency] = totals_by_currency[currency] + kickback
         writer.writerow([customer, _format_money(kickback), currency])
 
-    for currency, total in totals_by_currency.items():
-        writer.writerow(["TOTAL", _format_money(total), currency])
+    for currency in currency_order:
+        writer.writerow(["TOTAL", _format_money(totals_by_currency[currency]), currency])
 
     return output.getvalue()
 
 
 def _format_money(value: Decimal) -> str:
     rounded = value.quantize(_TWO_DECIMAL_PLACES, rounding=ROUND_HALF_UP)
-    # Use space thousands separators and decimal comma.
     return f"{rounded:,.2f}".replace(",", " ").replace(".", ",")
 
 

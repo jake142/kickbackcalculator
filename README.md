@@ -28,7 +28,7 @@ The implementation stays intentionally small and standard-library only. There is
 - Semicolon-delimited CSV parsing via the Python standard library
 - Skips the first row as a header
 - Ignores blank rows and rows with fewer than 11 columns
-- Groups by currency, customer, and kickback percent
+- Uses fixed PHP-compatible columns: customer=2, currency=8, amount=9, kickback percent=10
 - Uses `decimal.Decimal` internally for money-like calculations
 - Emits per-currency `TOTAL` rows
 - Formats output with two decimals, decimal comma, and space thousands separators
@@ -65,8 +65,9 @@ Create a small input file and run the CLI:
 
 ```bash
 cat > input.csv <<'CSV'
-ignored;header;row;for;compatibility;only;not;used;here;0;0
-x;y;Alice;z;z;z;z;z;EUR;100,00;10
+col0;col1;col2;col3;col4;col5;col6;col7;col8;col9;col10
+x;y;Customer A;z;z;z;z;z;SEK;1000,00;10
+x;y;Customer A;z;z;z;z;z;SEK;500,00;10
 CSV
 
 kickback-calculator input.csv -o output.csv
@@ -77,8 +78,8 @@ Expected output:
 
 ```csv
 customer;kickback;currency
-Alice;10,00;EUR
-TOTAL;10,00;EUR
+Customer A;150,00;SEK
+TOTAL;150,00;SEK
 ```
 
 ## Usage
@@ -89,8 +90,9 @@ Use the public function when you want to convert CSV text in memory:
 ```python
 from kickbackcalculator import calculate_kickbacks
 
-csv_text = """ignored;header;row;for;compatibility;only;not;used;here;0;0
-x;y;Alice;z;z;z;z;z;EUR;100,00;10
+csv_text = """col0;col1;col2;col3;col4;col5;col6;col7;col8;col9;col10
+x;y;Customer A;z;z;z;z;z;SEK;1000,00;10
+x;y;Customer A;z;z;z;z;z;SEK;500,00;10
 """
 
 result = calculate_kickbacks(csv_text)

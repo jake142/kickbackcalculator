@@ -11,9 +11,9 @@ from kickbackcalculator.cli import main
 def sample_input_file(tmp_path: Path) -> Path:
     path = tmp_path / "input.csv"
     path.write_text(
-        "customer;amount;currency;kickback_percent\n"
-        "Alice;1000.00;EUR;10\n"
-        "Bob;2500.50;EUR;5\n",
+        "col0;col1;col2;col3;col4;col5;col6;col7;col8;col9;col10\n"
+        "x;y;Customer A;z;z;z;z;z;SEK;1000,00;10\n"
+        "x;y;Customer A;z;z;z;z;z;SEK;500,00;10\n",
         encoding="utf-8",
     )
     return path
@@ -31,11 +31,11 @@ def test_main_writes_output_file(sample_input_file: Path, tmp_path: Path, capsys
 
     assert output_file.exists()
     rendered = output_file.read_text(encoding="utf-8")
-    assert rendered.startswith("customer;kickback;currency\n")
-    assert "Alice" in rendered
-    assert "Bob" in rendered
-    assert "TOTAL" in rendered
-    assert rendered.count("\n") >= 3
+    assert rendered == (
+        "customer;kickback;currency\n"
+        "Customer A;150,00;SEK\n"
+        "TOTAL;150,00;SEK\n"
+    )
 
 
 def test_main_writes_to_stdout_when_output_is_omitted(sample_input_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -44,16 +44,20 @@ def test_main_writes_to_stdout_when_output_is_omitted(sample_input_file: Path, c
     captured = capsys.readouterr()
     assert exit_code == 0
     assert captured.err == ""
-    assert captured.out.startswith("customer;kickback;currency\n")
-    assert "Alice" in captured.out
-    assert "TOTAL" in captured.out
+    assert captured.out == (
+        "customer;kickback;currency\n"
+        "Customer A;150,00;SEK\n"
+        "TOTAL;150,00;SEK\n"
+    )
 
 
 def test_main_honors_encoding_option(sample_input_file: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     latin1_input = tmp_path / "latin1.csv"
     latin1_input.write_bytes(
-        "customer;amount;currency;kickback_percent\n"
-        "Jörg;100.00;EUR;10\n".encode("latin-1")
+        (
+            "col0;col1;col2;col3;col4;col5;col6;col7;col8;col9;col10\n"
+            "x;y;J\u00f6rg;z;z;z;z;z;EUR;100,00;10\n"
+        ).encode("latin-1")
     )
     output_file = tmp_path / "latin1-output.csv"
 
@@ -65,7 +69,7 @@ def test_main_honors_encoding_option(sample_input_file: Path, tmp_path: Path, ca
     assert captured.err == ""
 
     rendered = output_file.read_text(encoding="utf-8")
-    assert "Jörg" in rendered
+    assert "J\u00f6rg" in rendered
     assert rendered.startswith("customer;kickback;currency\n")
 
 
