@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jake142-kickbackcalculator"
-version = "0.1.0"
+version = "0.1.1"
 description = "A minimal Python 3.11+ CLI package and reusable library function for converting semicolon-separated CSV input into grouped customer kickback rows and per-currency totals."
 readme = "README.md"
 requires-python = ">=3.11"
